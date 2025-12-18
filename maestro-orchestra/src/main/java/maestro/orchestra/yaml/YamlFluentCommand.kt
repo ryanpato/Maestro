@@ -30,6 +30,7 @@ import maestro.orchestra.AddMediaCommand
 import maestro.orchestra.AssertConditionCommand
 import maestro.orchestra.AssertNoDefectsWithAICommand
 import maestro.orchestra.AssertWithAICommand
+import maestro.orchestra.AssertEqualCommand
 import maestro.orchestra.BackPressCommand
 import maestro.orchestra.ClearKeychainCommand
 import maestro.orchestra.ClearStateCommand
@@ -95,6 +96,7 @@ data class YamlFluentCommand(
     val assertTrue: YamlAssertTrue? = null,
     val assertNoDefectsWithAI: YamlAssertNoDefectsWithAI? = null,
     val assertWithAI: YamlAssertWithAI? = null,
+    val assertEqual: YamlAssertEqual? = null,
     val extractTextWithAI: YamlExtractTextWithAI? = null,
     val back: YamlActionBack? = null,
     val clearKeychain: YamlActionClearKeychain? = null,
@@ -207,6 +209,17 @@ data class YamlFluentCommand(
                         assertion = assertWithAI.assertion,
                         optional = assertWithAI.optional,
                         label = assertWithAI.label,
+                    )
+                )
+            )
+
+            assertEqual != null -> listOf(
+                MaestroCommand(
+                    AssertEqualCommand(
+                        value1 = assertEqual.value1,
+                        value2 = assertEqual.value2,
+                        optional = assertEqual.optional,
+                        label = assertEqual.label,
                     )
                 )
             )
