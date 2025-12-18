@@ -442,6 +442,24 @@ data class AssertWithAICommand(
     }
 }
 
+data class AssertEqualCommand(
+    val value1: String? = null,
+    val value2: String? = null,
+    override val optional: Boolean = false,
+    override val label: String? = null,
+) : Command {
+    override val originalDescription: String
+        get() = "Assert that '$value1' equals '$value2'"
+
+    override fun evaluateScripts(jsEngine: JsEngine): Command {
+        return copy(
+            value1 = value1?.evaluateScripts(jsEngine),
+            value2 = value2?.evaluateScripts(jsEngine),
+            label = label?.evaluateScripts(jsEngine)
+        )
+    }
+}
+
 data class ExtractTextWithAICommand(
     val query: String,
     val outputVariable: String,
