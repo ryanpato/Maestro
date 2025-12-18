@@ -336,6 +336,7 @@ class Orchestra(
             is AssertConditionCommand -> assertConditionCommand(command)
             is AssertNoDefectsWithAICommand -> assertNoDefectsWithAICommand(command, maestroCommand)
             is AssertWithAICommand -> assertWithAICommand(command, maestroCommand)
+            is AssertEqualCommand -> assertEqualCommand(command, maestroCommand)
             is ExtractTextWithAICommand -> extractTextWithAICommand(command, maestroCommand)
             is InputTextCommand -> inputTextCommand(command)
             is InputRandomCommand -> inputTextRandomCommand(command)
@@ -489,6 +490,24 @@ class Orchestra(
                     """.trimMargin(),
                 hierarchyRoot = maestro.viewHierarchy().root,
             debugMessage = "AI-powered assertion failed. Check the UI and screenshots in debug artifacts to verify if there are actual visual issues that were missed or if the AI detection needs adjustment.")
+        }
+
+        return false
+    }
+
+    private fun assertEqualCommand(command: AssertEqualCommand, maestroCommand: MaestroCommand): Boolean {
+        val value1 = command.value1
+        val value2 = command.value2
+
+        if (value1 != value2) {
+            val message = "assertEqual failed: expected '$value1' to be '$value2'."
+            val debugMessage = "Assertion failed: expected '$value1' to be '$value2'."
+
+            throw MaestroException.AssertionFailure(
+                message,
+                hierarchyRoot = maestro.viewHierarchy().root,
+                debugMessage = debugMessage,
+            )
         }
 
         return false
