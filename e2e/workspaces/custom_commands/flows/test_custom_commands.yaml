@@ -1,0 +1,9 @@
+appId: com.ryan.CustomCommands
+---
+- launchApp
+- login:
+    email: user@email.com
+    password: pass123
+- assertVisible: Welcome back, Ryan
+- tapOnId: tap_me_button
+- assertVisible: Tap Button Pressed!

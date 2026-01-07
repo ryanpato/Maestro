@@ -1,0 +1,4 @@
+appId: com.maestro.commands
+---
+- tapOn:
+    id: ${value}

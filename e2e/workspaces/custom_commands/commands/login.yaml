@@ -1,0 +1,7 @@
+appId: com.maestro.commands
+---
+- tapOn: "email"
+- inputText: ${email}
+- tapOn: "password"
+- inputText: ${password}
+- tapOn: "Submit"
