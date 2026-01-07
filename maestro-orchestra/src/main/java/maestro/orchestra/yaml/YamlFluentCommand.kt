@@ -138,6 +138,7 @@ data class YamlFluentCommand(
     val setAirplaneMode: YamlSetAirplaneMode? = null,
     val toggleAirplaneMode: YamlToggleAirplaneMode? = null,
     val retry: YamlRetryCommand? = null,
+    @JsonIgnore val customCommand: YamlCustomCommand? = null,
     @JsonIgnore val _location: JsonLocation,
 ) {
 
@@ -454,6 +455,8 @@ data class YamlFluentCommand(
                 )
             )
 
+            customCommand != null -> listOf(customCommandToRunFlow(customCommand, flowPath))
+
             else -> throw SyntaxError("Invalid command: No mapping provided for $this")
         }
     }
@@ -547,6 +550,28 @@ data class YamlFluentCommand(
                 label = retry.label,
                 optional = retry.optional,
                 config = config
+            )
+        )
+    }
+
+    // Converts a custom command to a RunFlowCommand.
+    private fun customCommandToRunFlow(command: YamlCustomCommand, flowPath: Path): MaestroCommand {
+        val commandFile = CustomCommandLoader.findCustomCommand(flowPath, command.commandName)
+
+        if (commandFile == null) {
+            throw SyntaxError("`${command.commandName}` is not a valid command.")
+        }
+
+        val env = command.params.mapValues { it.value.toString() }
+        val commands = YamlCommandReader.readCommands(commandFile).withEnv(env)
+
+        return MaestroCommand(
+            RunFlowCommand(
+                commands = commands,
+                sourceDescription = "commands/${command.commandName}.yaml",
+                config = null,
+                label = command.label ?: command.commandName,
+                optional = command.optional
             )
         )
     }
