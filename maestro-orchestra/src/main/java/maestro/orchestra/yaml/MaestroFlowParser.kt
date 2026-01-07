@@ -335,15 +335,15 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
                 // TODO: Add docs link
             )
         }
-        throw ParseException(
-            location = commandLocation,
-            title = "Invalid Command: $commandText",
-            errorMessage = """
-                |`$commandText` is not a valid command.
-                |
-                |${suggestCommandMessage(commandText)}
-            """.trimMargin("|").trim(),
-            docs = DOCS_COMMANDS,
+        // Check if this could be a custom command (without parameters)
+        // Custom commands as string values are supported
+        // TODO: Handle errors if not
+        return YamlFluentCommand(
+            customCommand = YamlCustomCommand(
+                commandName = commandText,
+                params = emptyMap(),
+            ),
+            _location = commandLocation
         )
     }
 
@@ -351,16 +351,12 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
         val commandLocation = parser.currentLocation()
         val commandName = parser.nextFieldName()
         val commandParameter = yamlFluentCommandParameters.firstOrNull { it.name == commandName }
+        
         if (commandParameter == null) {
-            throw ParseException(
-                location = parser.currentLocation(),
-                title = "Invalid Command: $commandName",
-                errorMessage = """
-                    |`$commandName` is not a valid command.
-                    |
-                    |${suggestCommandMessage(commandName)}
-                """.trimMargin("|").trim(),
-            )
+            // Check if there's a custom command
+            return parseCustomCommand(parser, commandName, commandLocation)
+
+            // Handle error and suggestions
         }
         if (parser.nextToken() == JsonToken.VALUE_NULL) {
             throw ParseException(
@@ -413,6 +409,33 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
                 |- inputText: hello
                 |```
             """.trimMargin("|"),
+        )
+    }
+
+    // Parses an unknown command as a custom command.
+    private fun parseCustomCommand(
+        parser: JsonParser,
+        commandName: String,
+        commandLocation: JsonLocation
+    ): YamlFluentCommand {
+        parser.nextToken()
+        val value = parser.codec.readValue<Any?>(parser, Any::class.java)
+        parser.nextToken()
+
+        val params: Map<String, Any> = when (value) {
+            null -> emptyMap()
+            is Map<*, *> -> value.filterKeys { it is String }.mapKeys { it.key as String }.mapValues { it.value as Any }
+            else -> mapOf("value" to value)
+        }
+
+        return YamlFluentCommand(
+            customCommand = YamlCustomCommand(
+                commandName = commandName,
+                params = params.filterKeys { it != "label" && it != "optional" },
+                label = params["label"] as? String,
+                optional = params["optional"] as? Boolean ?: false,
+            ),
+            _location = commandLocation
         )
     }
 
