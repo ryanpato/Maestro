@@ -559,7 +559,7 @@ data class YamlFluentCommand(
         val commandFile = CustomCommandLoader.findCustomCommand(flowPath, command.commandName)
 
         if (commandFile == null) {
-            throw SyntaxError("`${command.commandName}` is not a valid command.")
+            throw SyntaxError("`${command.commandName}` is not a valid command. ${suggestCommandMessage(command.commandName)}")
         }
 
         val env = command.params.mapValues { it.value.toString() }

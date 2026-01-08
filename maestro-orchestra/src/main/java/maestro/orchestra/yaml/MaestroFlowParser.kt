@@ -353,11 +353,9 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
         val commandParameter = yamlFluentCommandParameters.firstOrNull { it.name == commandName }
         
         if (commandParameter == null) {
-            // Check if there's a custom command
             return parseCustomCommand(parser, commandName, commandLocation)
-
-            // Handle error and suggestions
         }
+
         if (parser.nextToken() == JsonToken.VALUE_NULL) {
             throw ParseException(
                 location = parser.currentLocation(),
@@ -438,17 +436,17 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
             _location = commandLocation
         )
     }
+}
 
-    private fun suggestCommandMessage(invalidCommand: String): String {
-        val prefixCommands = if (invalidCommand.length < 3) emptyList() else allCommands.filter { it.startsWith(invalidCommand) || invalidCommand.startsWith(it) }
-        val substringCommands = if (invalidCommand.length < 3) emptyList() else allCommands.filter { it.contains(invalidCommand) || invalidCommand.contains(it) }
-        val similarCommands = invalidCommand.findSimilar(allCommands, threshold = 3)
-        val suggestions = (prefixCommands + similarCommands + substringCommands).distinct()
-        return when {
-            suggestions.isEmpty() -> ""
-            suggestions.size == 1 -> "Did you mean `${suggestions.first()}`?"
-            else -> "Did you mean one of: ${suggestions.joinToString(", ")}"
-        }
+internal fun suggestCommandMessage(invalidCommand: String): String {
+    val prefixCommands = if (invalidCommand.length < 3) emptyList() else allCommands.filter { it.startsWith(invalidCommand) || invalidCommand.startsWith(it) }
+    val substringCommands = if (invalidCommand.length < 3) emptyList() else allCommands.filter { it.contains(invalidCommand) || invalidCommand.contains(it) }
+    val similarCommands = invalidCommand.findSimilar(allCommands, threshold = 3)
+    val suggestions = (prefixCommands + similarCommands + substringCommands).distinct()
+    return when {
+        suggestions.isEmpty() -> ""
+        suggestions.size == 1 -> " Did you mean `${suggestions.first()}`?"
+        else -> " Did you mean one of: ${suggestions.joinToString(", ")}?"
     }
 }
 
