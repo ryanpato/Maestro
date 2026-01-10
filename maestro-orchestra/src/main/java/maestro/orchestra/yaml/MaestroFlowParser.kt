@@ -39,6 +39,7 @@ import maestro.orchestra.WorkspaceConfig
 import maestro.orchestra.error.InvalidFlowFile
 import maestro.orchestra.error.MediaFileNotFound
 import maestro.orchestra.util.Env.withEnv
+import maestro.orchestra.yaml.YamlCustomCommand
 import org.intellij.lang.annotations.Language
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -336,12 +337,8 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
             )
         }
 
-        // Try a custom command (no params)
         return YamlFluentCommand(
-            customCommand = YamlCustomCommand(
-                commandName = commandText,
-                params = emptyMap(),
-            ),
+            customCommand = YamlCustomCommand(commandName = commandText, params = emptyMap()),
             _location = commandLocation
         )
     }
@@ -409,16 +406,22 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
         )
     }
 
-    // Parses an unknown command as a custom command.
     private fun parseCustomCommand(
         parser: JsonParser,
         commandName: String,
         commandLocation: JsonLocation
     ): YamlFluentCommand {
+
+        // Read the value of the command (string or object)
         parser.nextToken()
         val value = parser.codec.readValue<Any?>(parser, Any::class.java)
+
+        // Move the parser along for the next command
         parser.nextToken()
 
+        // Parse the possible types of the value field (e.g. scalar, map, null)
+        // If not an object map, it'll map the value to "value" e.g. ${value} in the flow file
+        // If you don't declare params in the flow file, you lose parse time failures.
         val params: Map<String, Any> = when (value) {
             null -> emptyMap()
             is Map<*, *> -> value.filterKeys { it is String }.mapKeys { it.key as String }.mapValues { it.value as Any }
