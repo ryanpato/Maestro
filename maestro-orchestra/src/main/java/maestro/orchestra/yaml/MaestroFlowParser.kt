@@ -335,9 +335,8 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
                 // TODO: Add docs link
             )
         }
-        // Check if this could be a custom command (without parameters)
-        // Custom commands as string values are supported
-        // TODO: Handle errors if not
+
+        // Try a custom command (no params)
         return YamlFluentCommand(
             customCommand = YamlCustomCommand(
                 commandName = commandText,

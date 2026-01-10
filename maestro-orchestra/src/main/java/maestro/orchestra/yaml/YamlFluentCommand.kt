@@ -562,7 +562,34 @@ data class YamlFluentCommand(
             throw SyntaxError("`${command.commandName}` is not a valid command. ${suggestCommandMessage(command.commandName)}")
         }
 
-        val env = command.params.mapValues { it.value.toString() }
+        // Get the config (front-matter) from the file
+        val config = YamlCommandReader.readConfig(commandFile)
+
+        // Build env from provided params, applying defaults and validating required params
+        val env = command.params.mapValues { it.value.toString() }.toMutableMap()
+
+        // Validate params defined in the command file's front-matter
+        val params = config.params ?: emptyMap()
+
+        for ((paramName, paramDef) in params) {
+            val wasProvided = command.params.containsKey(paramName)
+
+            if (!wasProvided) {
+                val isRequired = paramDef.required
+                val hasDefault = paramDef.default != null
+
+                // Handle a required parameter not being defined
+                if (isRequired && !hasDefault) {
+                    throw SyntaxError("Missing required parameter '$paramName' for command '${command.commandName}'")
+                }
+
+                // Use a default parameter if it does exist
+                if (hasDefault) {
+                    env[paramName] = paramDef.default.toString()
+                }
+            }
+        }
+
         val commands = YamlCommandReader.readCommands(commandFile).withEnv(env)
 
         return MaestroCommand(

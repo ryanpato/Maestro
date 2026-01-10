@@ -1,4 +1,7 @@
 appId: com.maestro.commands
+params:
+  email: { required: true }
+  password: { required: true }
 ---
 - tapOn: "email"
 - inputText: ${email}

@@ -1,4 +1,6 @@
 appId: com.maestro.commands
+params:
+  value: { required: true }
 ---
 - tapOn:
     id: ${value}
