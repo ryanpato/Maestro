@@ -1,5 +1,7 @@
 package maestro.orchestra.workspace
 
+import maestro.orchestra.yaml.CustomActionCatalog
+import maestro.orchestra.yaml.YamlCommandReader
 import java.io.FileNotFoundException
 import java.net.URI
 import java.nio.file.FileSystems
@@ -41,8 +43,23 @@ object WorkspaceUtils {
             throw FileNotFoundException(configOverride.absolutePathString())
         }
 
+        val customActions = if (!file.isDirectory() && configOverride != null) {
+            val workspaceConfig = YamlCommandReader.readWorkspaceConfig(configOverride)
+            CustomActionDiscovery.discoverForSingleFlow(
+                flow = file,
+                config = configOverride,
+                configuredPatterns = workspaceConfig.actions,
+            )
+        } else {
+            CustomActionCatalog.EMPTY
+        }
+
         val walkedFiles = if (!file.isDirectory()) {
-            DependencyResolver.discoverAllDependencies(file)
+            val entryDependencies = DependencyResolver.discoverAllDependencies(file, customActions)
+            val actionDependencies = customActions.files.flatMap {
+                DependencyResolver.discoverAllDependencies(it, customActions)
+            }
+            (entryDependencies + actionDependencies).distinct()
         } else {
             Files.walk(file).filter { !it.isDirectory() }.toList()
         }

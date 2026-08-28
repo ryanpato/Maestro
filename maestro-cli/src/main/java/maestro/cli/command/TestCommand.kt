@@ -64,6 +64,7 @@ import maestro.cli.promotion.PromotionStateManager
 import maestro.orchestra.error.ValidationError
 import maestro.orchestra.workspace.WorkspaceExecutionPlanner
 import maestro.orchestra.workspace.WorkspaceExecutionPlanner.ExecutionPlan
+import maestro.orchestra.yaml.CustomActionCatalog
 import maestro.utils.isSingleFile
 import okio.sink
 import org.slf4j.LoggerFactory
@@ -523,9 +524,17 @@ class TestCommand : Callable<Int> {
                         analyze,
                         authToken,
                         deviceId,
+                        executionPlan.customActions,
                     )
                 } else {
-                    runSingleFlow(maestro, device, flowFile, debugOutputPath, deviceId)
+                    runSingleFlow(
+                        maestro,
+                        device,
+                        flowFile,
+                        debugOutputPath,
+                        deviceId,
+                        executionPlan.customActions,
+                    )
                 }
             }
         }
@@ -550,6 +559,7 @@ class TestCommand : Callable<Int> {
         flowFile: File,
         debugOutputPath: Path,
         deviceId: String?,
+        customActions: CustomActionCatalog,
     ): Triple<Int, Int, Nothing?> {
         val resultView =
             if (DisableAnsiMixin.ansiEnabled) {
@@ -573,6 +583,7 @@ class TestCommand : Callable<Int> {
             analyze = analyze,
             apiKey = authToken,
             deviceId = deviceId,
+            customActions = customActions,
         )
         val duration = System.currentTimeMillis() - startTime
 
@@ -658,7 +669,7 @@ class TestCommand : Callable<Int> {
             .groupBy { it.index % effectiveShards }
             .map { (_, files) ->
                 val flowsToRun = files.map { it.value }
-                ExecutionPlan(flowsToRun, plan.sequence, plan.workspaceConfig)
+                plan.copy(flowsToRun = flowsToRun)
             }
     }
 

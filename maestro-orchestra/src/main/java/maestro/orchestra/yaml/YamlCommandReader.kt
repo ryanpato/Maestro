@@ -40,9 +40,12 @@ object YamlCommandReader {
     private val logger = LoggerFactory.getLogger(YamlCommandReader::class.java)
 
     // If it exists, automatically resolves the initFlow file and inlines the commands into the config
-    fun readCommands(flowPath: Path): List<MaestroCommand> = mapParsingErrors(flowPath) {
+    fun readCommands(
+        flowPath: Path,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
+    ): List<MaestroCommand> = mapParsingErrors(flowPath) {
         val flow = flowPath.readText()
-        MaestroFlowParser.parseFlow(flowPath, flow)
+        MaestroFlowParser.parseFlow(flowPath, flow, customActions)
     }
 
     fun readSingleCommand(flowPath: Path, appId: String, command: String): List<MaestroCommand> = mapParsingErrors(flowPath) {

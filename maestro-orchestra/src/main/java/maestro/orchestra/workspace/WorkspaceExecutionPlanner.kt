@@ -4,13 +4,14 @@ import maestro.orchestra.MaestroCommand
 import maestro.orchestra.WorkspaceConfig
 import maestro.orchestra.error.ValidationError
 import maestro.orchestra.workspace.ExecutionOrderPlanner.getFlowsToRunInSequence
+import maestro.orchestra.yaml.CustomActionCatalog
 import maestro.orchestra.yaml.YamlCommandReader
+import maestro.utils.isRegularFile
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.*
 import kotlin.streams.toList
-import maestro.utils.isRegularFile
 
 object WorkspaceExecutionPlanner {
 
@@ -28,17 +29,32 @@ object WorkspaceExecutionPlanner {
             """.trimIndent())
         }
 
+        // is this a single flow?
         if (input.isRegularFile) {
-            validateFlowFile(input.first())
             val workspaceConfig = if (config != null) {
                 YamlCommandReader.readWorkspaceConfig(config.absolute())
             } else {
                 WorkspaceConfig()
             }
+
+            // A single-flow rerun has no workspace root of its own. Passing --config
+            // opts it into discovery from the config and the flow's ancestor directories.
+            val customActions = if (config != null) {
+                CustomActionDiscovery.discoverForSingleFlow(
+                    flow = input.first(),
+                    config = config.absolute(),
+                    configuredPatterns = workspaceConfig.actions,
+                )
+            } else {
+                CustomActionCatalog.EMPTY
+            }
+            validateCustomActions(customActions)
+            validateFlowFile(input.first(), customActions)
             return ExecutionPlan(
                 flowsToRun = input.toList(),
                 sequence = FlowSequence(emptyList()),
-                workspaceConfig = workspaceConfig
+                workspaceConfig = workspaceConfig,
+                customActions = customActions,
             )
         }
 
@@ -50,10 +66,22 @@ object WorkspaceExecutionPlanner {
         val resolvedConfigPath = config?.absolute()
             ?: directories.firstNotNullOfOrNull { findConfigFile(it) }
 
-        val flowFiles = files.filter { isFlowFile(it, resolvedConfigPath) }
+        val workspaceConfig =
+            if (resolvedConfigPath != null) YamlCommandReader.readWorkspaceConfig(resolvedConfigPath)
+            else WorkspaceConfig()
+        val actionRoots = (directories + files.map { it.parent }).toSet()
+        val customActions = CustomActionDiscovery.discover(actionRoots, workspaceConfig.actions)
+        validateCustomActions(customActions)
+        val customActionFiles = customActions.files.map { it.toAbsolutePath().normalize() }.toSet()
+
+        val flowFiles = files.filter {
+            it.toAbsolutePath().normalize() !in customActionFiles && isFlowFile(it, resolvedConfigPath)
+        }
         val flowFilesInDirs: List<Path> = directories.flatMap { dir -> Files
             .walk(dir)
-            .filter { isFlowFile(it, resolvedConfigPath) }
+            .filter {
+                it.toAbsolutePath().normalize() !in customActionFiles && isFlowFile(it, resolvedConfigPath)
+            }
             .toList()
         }
         if (flowFilesInDirs.isEmpty() && flowFiles.isEmpty()) {
@@ -63,10 +91,6 @@ object WorkspaceExecutionPlanner {
         }
 
         // Filter flows based on flows config
-
-        val workspaceConfig =
-            if (resolvedConfigPath != null) YamlCommandReader.readWorkspaceConfig(resolvedConfigPath)
-            else WorkspaceConfig()
 
         val globs = workspaceConfig.flows ?: listOf("*")
 
@@ -99,7 +123,7 @@ object WorkspaceExecutionPlanner {
         // Filter flows based on tags
 
         val configPerFlowFile = unsortedFlowFiles.associateWith {
-            val commands = validateFlowFile(it)
+            val commands = validateFlowFile(it, customActions)
             YamlCommandReader.getConfig(commands)
         }
 
@@ -135,12 +159,12 @@ object WorkspaceExecutionPlanner {
         val flowsToRunInSequence = workspaceConfig.executionOrder?.flowsOrder?.let {
             getFlowsToRunInSequence(pathsByName, it)
         } ?: emptyList()
-        var normalFlows = allFlows - flowsToRunInSequence.toSet()
+        val normalFlows = allFlows - flowsToRunInSequence.toSet()
 
         // validation of media files for add media command
         allFlows.forEach {
             val commands = YamlCommandReader
-                .readCommands(it)
+                .readCommands(it, customActions)
                 .mapNotNull { maestroCommand -> maestroCommand.addMediaCommand }
             val mediaPaths = commands.flatMap { addMediaCommand -> addMediaCommand.mediaPaths }
             YamlCommandsPathValidator.validatePathsExistInWorkspace(input, it, mediaPaths)
@@ -153,6 +177,7 @@ object WorkspaceExecutionPlanner {
                 workspaceConfig.executionOrder?.continueOnFailure
             ),
             workspaceConfig = workspaceConfig,
+            customActions = customActions,
         )
 
         logger.info("Created execution plan: $executionPlan")
@@ -160,8 +185,19 @@ object WorkspaceExecutionPlanner {
         return executionPlan
     }
 
-    private fun validateFlowFile(topLevelFlowPath: Path): List<MaestroCommand> {
-        return YamlCommandReader.readCommands(topLevelFlowPath)
+    private fun validateFlowFile(
+        topLevelFlowPath: Path,
+        customActions: CustomActionCatalog,
+    ): List<MaestroCommand> {
+        return YamlCommandReader.readCommands(topLevelFlowPath, customActions)
+    }
+
+    private fun validateCustomActions(customActions: CustomActionCatalog) {
+        customActions.files.forEach { actionFile ->
+            YamlCommandReader.readConfig(actionFile)
+            // Action bodies are intentionally limited to built-in commands in the MVP.
+            YamlCommandReader.readCommands(actionFile)
+        }
     }
 
     private fun findConfigFile(input: Path): Path? {
@@ -192,5 +228,6 @@ object WorkspaceExecutionPlanner {
         val flowsToRun: List<Path>,
         val sequence: FlowSequence,
         val workspaceConfig: WorkspaceConfig = WorkspaceConfig(),
+        val customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
     )
 }

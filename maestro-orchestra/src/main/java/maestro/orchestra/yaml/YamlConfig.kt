@@ -16,6 +16,10 @@ class ConfigParseError(
     val location: JsonLocation? = null
 ) : RuntimeException("Config validation error: $errorType")
 
+data class YamlActionParameter(
+    val required: Boolean = false,
+)
+
 data class YamlConfig(
     val name: String?,
     @JsonAlias("appId") private val _appId: String?,
@@ -26,6 +30,7 @@ data class YamlConfig(
     val onFlowStart: YamlOnFlowStart?,
     val onFlowComplete: YamlOnFlowComplete?,
     val properties: Map<String, String> = emptyMap(),
+    val params: Map<String, YamlActionParameter> = emptyMap(),
     private val ext: MutableMap<String, Any?> = mutableMapOf<String, Any?>()
 ) {
 

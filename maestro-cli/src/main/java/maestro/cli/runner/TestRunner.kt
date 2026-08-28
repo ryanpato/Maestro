@@ -22,6 +22,7 @@ import maestro.orchestra.debug.FlowDebugOutput
 import maestro.orchestra.util.Env.withEnv
 import maestro.orchestra.util.Env.withDefaultEnvVars
 import maestro.orchestra.util.Env.withInjectedShellEnvVars
+import maestro.orchestra.yaml.CustomActionCatalog
 import maestro.orchestra.yaml.YamlCommandReader
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -50,6 +51,7 @@ object TestRunner {
         analyze: Boolean = false,
         apiKey: String? = null,
         deviceId: String?,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
     ): Int {
         val debugOutput = FlowDebugOutput()
         var aiOutput = FlowAIOutput(
@@ -61,7 +63,7 @@ object TestRunner {
             .withInjectedShellEnvVars()
             .withDefaultEnvVars(flowFile, deviceId)
 
-        val commands = YamlCommandReader.readCommands(flowFile.toPath()).withEnv(updatedEnv)
+        val commands = YamlCommandReader.readCommands(flowFile.toPath(), customActions).withEnv(updatedEnv)
         val flowName = YamlCommandReader.getConfig(commands)?.name ?: flowFile.nameWithoutExtension
         aiOutput = aiOutput.copy(flowName = flowName)
         logger.info("Running flow ${flowFile.name}...")
@@ -115,6 +117,7 @@ object TestRunner {
         analyze: Boolean = false,
         apiKey: String? = null,
         deviceId: String?,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
     ): Nothing {
         val resultView = AnsiResultView("> Press [ENTER] to restart the Flow\n\n")
 
@@ -135,7 +138,7 @@ object TestRunner {
                     .withDefaultEnvVars(flowFile, deviceId)
 
                 val commands = YamlCommandReader
-                    .readCommands(flowFile.toPath())
+                    .readCommands(flowFile.toPath(), customActions)
                     .withEnv(updatedEnv)
 
                 val flowName = YamlCommandReader.getConfig(commands)?.name

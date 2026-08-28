@@ -56,8 +56,9 @@ import kotlin.reflect.jvm.javaType
 private val yamlFluentCommandConstructor = YamlFluentCommand::class.primaryConstructor!!
 private val yamlFluentCommandParameters = yamlFluentCommandConstructor.parameters
 private val yamlFluentCommandSourceInfoParameter = yamlFluentCommandParameters.first { it.name == "_sourceInfo" }
+private val yamlFluentCommandCustomActionParameter = yamlFluentCommandParameters.first { it.name == "customAction" }
 private val objectCommands = yamlFluentCommandConstructor.parameters
-    .filter { it.name != "_sourceInfo" }
+    .filter { it.name != "_sourceInfo" && it.name != "customAction" }
     .map { it.name!! }
 
 private const val PARSE_CONTEXT_ATTR = "maestroParseContext"
@@ -65,7 +66,11 @@ private const val PARSE_CONTEXT_ATTR = "maestroParseContext"
 // Per-parse cache so per-command provenance is O(1) instead of re-tokenizing
 // the full YAML for every command. Offsets reference [source] verbatim — no
 // normalization — so SourceInfo offsets stay aligned with whatever was on disk.
-private class ParseContext(val source: String, val path: String?) {
+private class ParseContext(
+    val source: String,
+    val path: String?,
+    val customActionNames: Set<String> = emptySet(),
+) {
     val lines: List<String> = source.lines()
     private val lineStarts: IntArray = computeLineStarts(source)
 
@@ -169,7 +174,7 @@ private val stringCommands = mapOf<String, (YamlFluentCommand) -> YamlFluentComm
     "assertNoDefectsWithAI" to { it.copy(assertNoDefectsWithAI = YamlAssertNoDefectsWithAI()) },
 )
 
-private val allCommands = (stringCommands.keys + objectCommands).distinct()
+internal val builtInCommandNames = (stringCommands.keys + objectCommands).distinct()
 
 private const val DOCS_FIRST_FLOW = "https://docs.maestro.dev/getting-started/writing-your-first-flow"
 private const val DOCS_COMMANDS = "https://docs.maestro.dev/api-reference/commands"
@@ -385,32 +390,27 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
                 // TODO: Add docs link
             )
         }
-        throw ParseException(
-            location = commandLocation,
-            title = "Invalid Command: $commandText",
-            errorMessage = """
-                |`$commandText` is not a valid command.
-                |
-                |${suggestCommandMessage(commandText)}
-            """.trimMargin("|").trim(),
-            docs = DOCS_COMMANDS,
+        if (commandText !in ctx.customActionNames) {
+            throw invalidCommand(commandLocation, commandText, ctx.customActionNames, includeDocs = true)
+        }
+        val end = parser.currentLocation()
+        return YamlFluentCommand(
+            customAction = YamlCustomAction(name = commandText),
+            _sourceInfo = buildSourceInfo(ctx, commandLocation, end),
         )
     }
 
     private fun parseObjectCommand(parser: JsonParser, ctxt: DeserializationContext, ctx: ParseContext): YamlFluentCommand {
         val commandLocation = parser.currentTokenLocation()
         val commandName = parser.nextFieldName()
-        val commandParameter = yamlFluentCommandParameters.firstOrNull { it.name == commandName }
+        val commandParameter = yamlFluentCommandParameters.firstOrNull {
+            it.name == commandName && it != yamlFluentCommandCustomActionParameter && it != yamlFluentCommandSourceInfoParameter
+        }
         if (commandParameter == null) {
-            throw ParseException(
-                location = parser.currentLocation(),
-                title = "Invalid Command: $commandName",
-                errorMessage = """
-                    |`$commandName` is not a valid command.
-                    |
-                    |${suggestCommandMessage(commandName)}
-                """.trimMargin("|").trim(),
-            )
+            if (commandName !in ctx.customActionNames) {
+                throw invalidCommand(parser.currentLocation(), commandName, ctx.customActionNames)
+            }
+            return parseCustomAction(parser, ctxt, ctx, commandName, commandLocation)
         }
         if (parser.nextToken() == JsonToken.VALUE_NULL) {
             throw ParseException(
@@ -471,10 +471,70 @@ private object YamlCommandDeserializer : JsonDeserializer<YamlFluentCommand>() {
         )
     }
 
-    private fun suggestCommandMessage(invalidCommand: String): String {
-        val prefixCommands = if (invalidCommand.length < 3) emptyList() else allCommands.filter { it.startsWith(invalidCommand) || invalidCommand.startsWith(it) }
-        val substringCommands = if (invalidCommand.length < 3) emptyList() else allCommands.filter { it.contains(invalidCommand) || invalidCommand.contains(it) }
-        val similarCommands = invalidCommand.findSimilar(allCommands, threshold = 3)
+    private fun parseCustomAction(
+        parser: JsonParser,
+        ctxt: DeserializationContext,
+        ctx: ParseContext,
+        actionName: String,
+        commandLocation: JsonLocation,
+    ): YamlFluentCommand {
+        val valueToken = parser.nextToken()
+        val params = when (valueToken) {
+            JsonToken.VALUE_NULL -> emptyMap()
+            JsonToken.START_OBJECT -> {
+                val mapType = (parser.codec as ObjectMapper).typeFactory
+                    .constructMapType(LinkedHashMap::class.java, String::class.java, Any::class.java)
+                ctxt.readValue<Map<String, Any?>>(parser, mapType)
+            }
+            else -> throw ParseException(
+                location = parser.currentLocation(),
+                title = "Incorrect Custom Action Format: $actionName",
+                errorMessage = "Custom action parameters must be a map of names to values.",
+            )
+        }
+
+        val nextToken = parser.nextToken()
+        if (nextToken != JsonToken.END_OBJECT) {
+            val fieldName = if (nextToken == JsonToken.FIELD_NAME) parser.currentName() else null
+            throw ParseException(
+                location = parser.currentLocation(),
+                title = "Invalid Command Format: $actionName",
+                errorMessage = fieldName?.let { "Found unexpected top-level field: `$it`. Missing an indent or dash?" }
+                    ?: "Commands must contain exactly one action.",
+            )
+        }
+
+        val action = YamlCustomAction(
+            name = actionName,
+            params = params,
+        )
+        return yamlFluentCommandConstructor.callBy(mapOf(
+            yamlFluentCommandSourceInfoParameter to buildSourceInfo(ctx, commandLocation, parser.currentLocation()),
+            yamlFluentCommandCustomActionParameter to action,
+        ))
+    }
+
+    private fun invalidCommand(
+        location: JsonLocation,
+        commandName: String,
+        customActionNames: Set<String>,
+        includeDocs: Boolean = false,
+    ) = ParseException(
+        location = location,
+        title = "Invalid Command: $commandName",
+        errorMessage = """
+            |`$commandName` is not a valid command.
+            |
+            |${suggestCommandMessage(commandName, customActionNames)}
+        """.trimMargin("|").trim(),
+        docs = DOCS_COMMANDS.takeIf { includeDocs },
+    )
+
+    private fun suggestCommandMessage(invalidCommand: String, customActionNames: Set<String>): String {
+        val commands = builtInCommandNames + customActionNames
+        val prefixCommands = if (invalidCommand.length < 3) emptyList() else commands.filter { it.startsWith(invalidCommand) || invalidCommand.startsWith(it) }
+        val substringCommands = if (invalidCommand.length < 3) emptyList() else commands.filter { it.contains(invalidCommand) || invalidCommand.contains(it) }
+        val similarCommands = invalidCommand.findSimilar(commands, threshold = 3)
         val suggestions = (prefixCommands + similarCommands + substringCommands).distinct()
         return when {
             suggestions.isEmpty() -> ""
@@ -513,14 +573,18 @@ object MaestroFlowParser {
         })
     }
 
-    fun parseFlow(flowPath: Path, flow: String): List<MaestroCommand> {
-        val ctx = parseContextFor(flow, flowPath)
+    fun parseFlow(
+        flowPath: Path,
+        flow: String,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
+    ): List<MaestroCommand> {
+        val ctx = parseContextFor(flow, flowPath, customActions)
         MAPPER.createParser(flow).use { parser ->
             try {
                 val config = parseConfig(parser, ctx)
                 val commands = parseCommands(parser, ctx)
                 val maestroCommands = commands
-                    .flatMap { it.toCommands(flowPath, config.appId) }
+                    .flatMap { it.toCommands(flowPath, config.appId, customActions) }
                     .withEnv(config.env)
                 return listOfNotNull(config.toCommand(flowPath), *maestroCommands.toTypedArray())
             } catch (e: Throwable) {
@@ -553,8 +617,15 @@ object MaestroFlowParser {
         }
     }
 
-    private fun parseContextFor(source: String, path: Path?): ParseContext =
-        ParseContext(source = source, path = path?.absolute()?.toString())
+    private fun parseContextFor(
+        source: String,
+        path: Path?,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
+    ): ParseContext = ParseContext(
+        source = source,
+        path = path?.absolute()?.toString(),
+        customActionNames = customActions.names(),
+    )
 
     fun parseWorkspaceConfig(configPath: Path, workspaceConfig: String): WorkspaceConfig {
         MAPPER.createParser(workspaceConfig).use { parser ->

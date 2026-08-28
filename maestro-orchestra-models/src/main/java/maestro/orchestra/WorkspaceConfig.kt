@@ -6,6 +6,7 @@ import kotlin.reflect.full.declaredMemberProperties
 
 data class WorkspaceConfig(
     val flows: StringList? = null,
+    val actions: StringList? = null,
     val includeTags: StringList? = null,
     val excludeTags: StringList? = null,
     val executionOrder: ExecutionOrder? = null,

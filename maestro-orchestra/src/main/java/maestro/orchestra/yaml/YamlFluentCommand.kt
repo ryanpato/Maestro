@@ -141,19 +141,28 @@ data class YamlFluentCommand(
     val setAirplaneMode: YamlSetAirplaneMode? = null,
     val toggleAirplaneMode: YamlToggleAirplaneMode? = null,
     val retry: YamlRetryCommand? = null,
+    @JsonIgnore val customAction: YamlCustomAction? = null,
     @JsonIgnore val _sourceInfo: SourceInfo,
 ) {
 
-    fun toCommands(flowPath: Path, appId: String): List<MaestroCommand> {
+    fun toCommands(
+        flowPath: Path,
+        appId: String,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
+    ): List<MaestroCommand> {
         return try {
-            _toCommands(flowPath, appId).map { it.copy(sourceInfo = _sourceInfo) }
+            _toCommands(flowPath, appId, customActions).map { it.copy(sourceInfo = _sourceInfo) }
         } catch (e: Throwable) {
             throw ToCommandsException(e, _sourceInfo)
         }
     }
 
     @SuppressWarnings("ComplexMethod")
-    private fun _toCommands(flowPath: Path, appId: String): List<MaestroCommand> {
+    private fun _toCommands(
+        flowPath: Path,
+        appId: String,
+        customActions: CustomActionCatalog,
+    ): List<MaestroCommand> {
         return when {
             launchApp != null -> listOf(launchApp(launchApp, appId))
             setPermissions != null -> listOf(setPermissions(command = setPermissions, appId))
@@ -483,6 +492,8 @@ data class YamlFluentCommand(
                 )
             )
 
+            customAction != null -> listOf(customActionCommand(customAction, customActions))
+
             else -> throw SyntaxError("Invalid command: No mapping provided for $this")
         }
     }
@@ -637,6 +648,58 @@ data class YamlFluentCommand(
                 )
             )
         }
+    }
+
+    private fun customActionCommand(
+        action: YamlCustomAction,
+        customActions: CustomActionCatalog,
+    ): MaestroCommand {
+        val definition = customActions[action.name]
+            ?: throw SyntaxError("`${action.name}` is not a valid command or discovered custom action")
+        val config = YamlCommandReader.readConfig(definition.path)
+
+        val unknownParams = action.params.keys - config.params.keys
+        if (unknownParams.isNotEmpty()) {
+            throw SyntaxError(
+                "Unknown parameter(s) for custom action '${action.name}': ${unknownParams.sorted().joinToString(", ")}"
+            )
+        }
+
+        action.params.entries.firstOrNull { (_, value) ->
+            value !is String
+        }?.let { (paramName, _) ->
+            throw SyntaxError(
+                "Parameter '$paramName' for custom action '${action.name}' must be a string"
+            )
+        }
+
+        val env = config.env.toMutableMap()
+        config.params.forEach { (paramName, paramDefinition) ->
+            val value = when {
+                action.params.containsKey(paramName) -> action.params[paramName] as String
+                paramDefinition.required -> throw SyntaxError(
+                    "Missing required parameter '$paramName' for custom action '${action.name}'"
+                )
+                else -> null
+            }
+            if (value != null) env[paramName] = value
+        }
+
+        // The action header supplies parsing context only. Its env and the invocation
+        // params are combined into one scope so caller-supplied values win.
+        val commands = YamlCommandReader.readCommands(definition.path)
+            .filter { it.applyConfigurationCommand == null && it.defineVariablesCommand == null }
+            .withEnv(env)
+
+        return MaestroCommand(
+            RunFlowCommand(
+                commands = commands,
+                sourceDescription = definition.sourceDescription,
+                config = null,
+                label = action.name,
+                optional = false,
+            )
+        )
     }
 
     fun getWatchFiles(flowPath: Path): List<Path> {

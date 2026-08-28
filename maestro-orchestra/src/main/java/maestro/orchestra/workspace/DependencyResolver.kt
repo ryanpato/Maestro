@@ -2,15 +2,19 @@ package maestro.orchestra.workspace
 
 import maestro.orchestra.CompositeCommand
 import maestro.orchestra.MaestroCommand
+import maestro.orchestra.yaml.CustomActionCatalog
 import maestro.orchestra.yaml.MaestroFlowParser
 import java.nio.file.Files
-import java.nio.file.Path
 import java.nio.file.LinkOption
+import java.nio.file.Path
 import kotlin.io.path.exists
 
 object DependencyResolver {
 
-    fun discoverAllDependencies(flowFile: Path): List<Path> {
+    fun discoverAllDependencies(
+        flowFile: Path,
+        customActions: CustomActionCatalog = CustomActionCatalog.EMPTY,
+    ): List<Path> {
         val discoveredFiles = mutableSetOf<Path>()
         val filesToProcess = mutableListOf(normalizePath(flowFile))
 
@@ -30,7 +34,11 @@ object DependencyResolver {
                 }
 
                 val flowContent = Files.readString(currentFile)
-                val commands = MaestroFlowParser.parseFlow(currentFile, flowContent)
+                val commands = MaestroFlowParser.parseFlow(
+                    currentFile,
+                    flowContent,
+                    customActions,
+                )
 
                 // Discover dependencies from each command
                 val dependencies = commands.flatMap { maestroCommand ->

@@ -89,7 +89,7 @@ object WorkspaceValidator {
                 )
                 (plan.flowsToRun + plan.sequence.flows).forEach { path ->
                     val commands = try {
-                        YamlCommandReader.readCommands(path).withEnv(envParameters)
+                        YamlCommandReader.readCommands(path, plan.customActions).withEnv(envParameters)
                     } catch (e: InvalidFlowFile) {
                         throw OrchestraSyntaxError("Invalid flow file: ${e.message}")
                     }
